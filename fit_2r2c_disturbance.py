@@ -27,7 +27,9 @@ import argparse
 import json
 import math
 import zipfile
+import sys
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 from typing import Dict, Iterable, List, Tuple
 
@@ -48,6 +50,7 @@ class Config:
     sigma_proc_ti: float = 0.005
     sigma_proc_tm: float = 0.02
     sigma_proc_qd_init: float = 50.0
+    maxiter: int = 80
     out_json: Path = Path("r2r2c_disturbance_result.json")
     out_csv: Path = Path("r2r2c_disturbance_filtered.csv")
 
@@ -167,8 +170,8 @@ def _kalman_nll(
         P_pred = Ad @ P @ Ad.T + Q
 
         y = float(tin[k])
-        y_pred = float(H @ x_pred)
-        S = float(H @ P_pred @ H.T + R)
+        y_pred = float((H @ x_pred)[0])
+        S = float((H @ P_pred @ H.T + R)[0][0])
         if S <= 0:
             return 1e12
 
@@ -215,8 +218,8 @@ def _run_kalman(
         P_pred = Ad @ P @ Ad.T + Q
 
         y = float(tin[k])
-        y_pred = float(H @ x_pred)
-        S = float(H @ P_pred @ H.T + R)
+        y_pred = float((H @ x_pred)[0])
+        S = float((H @ P_pred @ H.T + R)[0][0])
         K = (P_pred @ H.T)[:, 0] / S
         x = x_pred + K * (y - y_pred)
         P = P_pred - np.outer(K, H @ P_pred)
@@ -240,23 +243,17 @@ def fit_model(cfg: Config) -> Dict[str, float]:
     )
     bounds = [(-6, 1), (-6, 2), (4, 9), (0, 4), (-3, 4)]
 
+    nll = partial(_kalman_nll, tin=tin, tout=tout, dt_s=dt_s, cfg=cfg)
     res = minimize(
-        _kalman_nll,
+        nll,
         x0,
-        args=(),
-        kwargs={
-            "tin": tin,
-            "tout": tout,
-            "dt_s": dt_s,
-            "cfg": cfg,
-        },
         method="L-BFGS-B",
         bounds=bounds,
-        options={"maxiter": 80},
+        options={"maxiter": cfg.maxiter},
     )
 
     if not res.success:
-        raise RuntimeError(f"Optimization failed: {res.message}")
+        print(f"Warning: optimization did not converge: {res.message}", file=sys.stderr)
 
     log_ria, log_rao, log_cm, log_volume, log_sigma_q = res.x
     Ria = 10.0 ** float(log_ria)
@@ -325,6 +322,7 @@ def _parse_args() -> Config:
     parser.add_argument("--sigma-proc-ti", dest="sigma_proc_ti", type=float, default=0.005)
     parser.add_argument("--sigma-proc-tm", dest="sigma_proc_tm", type=float, default=0.02)
     parser.add_argument("--sigma-proc-qd-init", dest="sigma_proc_qd_init", type=float, default=50.0)
+    parser.add_argument("--maxiter", dest="maxiter", type=int, default=80)
     args = parser.parse_args()
 
     return Config(
@@ -337,6 +335,7 @@ def _parse_args() -> Config:
         sigma_proc_ti=args.sigma_proc_ti,
         sigma_proc_tm=args.sigma_proc_tm,
         sigma_proc_qd_init=args.sigma_proc_qd_init,
+        maxiter=args.maxiter,
         out_json=Path(args.out_json),
         out_csv=Path(args.out_csv),
     )
