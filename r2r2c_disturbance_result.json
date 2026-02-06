@@ -1,0 +1,14 @@
+{
+  "Ria_K_per_W": 0.00593365061104893,
+  "Rao_K_per_W": 0.07046120520373558,
+  "volume_m3": 200.7893503759435,
+  "Ci_J_per_K": 242151.95655338786,
+  "Cm_J_per_K": 9022859.82106526,
+  "sigma_qd_W": 9.399279655122971,
+  "dt_seconds": 60.0,
+  "rmse_C": 0.015305417017550352,
+  "data_points": 128228,
+  "outputs": {
+    "filtered_csv": "r2r2c_disturbance_filtered.csv"
+  }
+}
