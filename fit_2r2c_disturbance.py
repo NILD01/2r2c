@@ -13,8 +13,8 @@ Ci dTi/dt = (Tout - Ti)/Rao + (Tm - Ti)/Ria + qd
 Cm dTm/dt = (Ti - Tm)/Ria
 qd dot = 0  (random walk in discrete time)
 
-We fit Ria, Rao, Cm, and sigma_qd (process noise of qd) by maximizing a
-Kalman-filter log-likelihood. Ci comes from room volume V.
+We fit Ria, Rao, Cm, volume V, and sigma_qd (process noise of qd) by maximizing a
+Kalman-filter log-likelihood. Ci is derived from the fitted room volume V.
 
 Outputs
 -------
@@ -132,13 +132,14 @@ def _kalman_nll(
     tin: np.ndarray,
     tout: np.ndarray,
     dt_s: float,
-    Ci: float,
     cfg: Config,
 ) -> float:
-    log_ria, log_rao, log_cm, log_sigma_q = params_log
+    log_ria, log_rao, log_cm, log_volume, log_sigma_q = params_log
     Ria = 10.0 ** float(log_ria)
     Rao = 10.0 ** float(log_rao)
     Cm = 10.0 ** float(log_cm)
+    volume_m3 = 10.0 ** float(log_volume)
+    Ci = _air_capacitance_from_volume(volume_m3)
     sigma_q = 10.0 ** float(log_sigma_q)
 
     try:
@@ -228,10 +229,16 @@ def fit_model(cfg: Config) -> Dict[str, float]:
     df = _read_zip_csv(cfg.zip_path)
     tin, tout, dt_s, times = _prepare_series(df, cfg)
 
-    Ci = _air_capacitance_from_volume(cfg.volume_m3)
-
-    x0 = np.array([math.log10(0.05), math.log10(0.5), math.log10(8e6), math.log10(50.0)])
-    bounds = [(-6, 1), (-6, 2), (4, 9), (-3, 4)]
+    x0 = np.array(
+        [
+            math.log10(0.05),
+            math.log10(0.5),
+            math.log10(8e6),
+            math.log10(cfg.volume_m3),
+            math.log10(50.0),
+        ]
+    )
+    bounds = [(-6, 1), (-6, 2), (4, 9), (0, 4), (-3, 4)]
 
     res = minimize(
         _kalman_nll,
@@ -241,7 +248,6 @@ def fit_model(cfg: Config) -> Dict[str, float]:
             "tin": tin,
             "tout": tout,
             "dt_s": dt_s,
-            "Ci": Ci,
             "cfg": cfg,
         },
         method="L-BFGS-B",
@@ -252,10 +258,12 @@ def fit_model(cfg: Config) -> Dict[str, float]:
     if not res.success:
         raise RuntimeError(f"Optimization failed: {res.message}")
 
-    log_ria, log_rao, log_cm, log_sigma_q = res.x
+    log_ria, log_rao, log_cm, log_volume, log_sigma_q = res.x
     Ria = 10.0 ** float(log_ria)
     Rao = 10.0 ** float(log_rao)
     Cm = 10.0 ** float(log_cm)
+    volume_m3 = 10.0 ** float(log_volume)
+    Ci = _air_capacitance_from_volume(volume_m3)
     sigma_q = 10.0 ** float(log_sigma_q)
 
     xs, tin_filt = _run_kalman(
@@ -289,6 +297,7 @@ def fit_model(cfg: Config) -> Dict[str, float]:
     result = {
         "Ria_K_per_W": Ria,
         "Rao_K_per_W": Rao,
+        "volume_m3": volume_m3,
         "Ci_J_per_K": Ci,
         "Cm_J_per_K": Cm,
         "sigma_qd_W": sigma_q,
