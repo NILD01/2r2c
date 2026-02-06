@@ -1,0 +1,103 @@
+{
+  "windows": [
+    {
+      "name": "keukentafel",
+      "length_m": 2.558,
+      "width_m": 1.935,
+      "area_m2": 4.955,
+      "open_area_m2": 0.0,
+      "operability": "geen",
+      "U_W_m2K": 1.1,
+      "g_value": 0.64,
+      "tilt_deg": 90.0,
+      "azimuth_deg": 348.21,
+      "shutter_feature": null,
+      "glass": "dubbel glas argon"
+    },
+    {
+      "name": "schuifraam",
+      "length_m": 2.25,
+      "width_m": 1.925,
+      "area_m2": 4.33125,
+      "open_area_m2": 2.165625,
+      "operability": "open/dicht",
+      "U_W_m2K": 1.1,
+      "g_value": 0.64,
+      "tilt_deg": 90.0,
+      "azimuth_deg": 76.88,
+      "shutter_feature": null,
+      "glass": "dubbel glas argon",
+      "horizon": [
+        {"az_min": 45.0, "az_max": 58.0, "elev_min_deg": 7.7},
+        {"az_min": 58.0, "az_max": 72.0, "elev_min_deg": 6.0},
+        {"az_min": 72.0, "az_max": 90.0, "elev_min_deg": 9.0}
+      ],
+      "horizon_block_elsewhere": true
+    },
+    {
+      "name": "bureau_kinderen",
+      "length_m": 1.168,
+      "width_m": 1.276,
+      "area_m2": 1.490368,
+      "open_area_m2": 0.0,
+      "operability": "geen",
+      "U_W_m2K": 1.1,
+      "g_value": 0.64,
+      "tilt_deg": 90.0,
+      "azimuth_deg": 348.21,
+      "shutter_feature": null,
+      "glass": "dubbel glas argon"
+    },
+    {
+      "name": "zetel",
+      "length_m": 1.153,
+      "width_m": 1.235,
+      "area_m2": 1.423955,
+      "open_area_m2": 0.0,
+      "operability": "geen",
+      "U_W_m2K": 1.1,
+      "g_value": 0.64,
+      "tilt_deg": 90.0,
+      "azimuth_deg": 348.21,
+      "shutter_feature": null,
+      "glass": "dubbel glas argon"
+    },
+    {
+      "name": "bureau_straat",
+      "length_m": 2.012,
+      "width_m": 1.235,
+      "area_m2": 2.48482,
+      "open_area_m2": 0.0,
+      "operability": "geen",
+      "U_W_m2K": 1.1,
+      "g_value": 0.64,
+      "tilt_deg": 90.0,
+      "azimuth_deg": 256.88,
+      "shutter_feature": "RollerShutter_Livingroom",
+      "glass": "dubbel glas argon",
+      "horizon": [
+        {"az_min": 180.0, "az_max": 190.0, "elev_min_deg": 5.0},
+        {"az_min": 190.0, "az_max": 240.0, "elev_min_deg": {"lin": [9.0, 16.0]}},
+        {"az_min": 240.0, "az_max": 250.0, "elev_min_deg": 4.0},
+        {"az_min": 250.0, "az_max": 255.0, "elev_min_deg": 7.5},
+        {"az_min": 255.0, "az_max": 266.0, "elev_min_deg": {"lin": [7.5, 12.5]}},
+        {"az_min": 266.0, "az_max": 280.0, "elev_min_deg": 12.5}
+      ],
+      "horizon_block_elsewhere": true
+    },
+    {
+      "name": "buitendeur",
+      "length_m": 0.75,
+      "width_m": 1.935,
+      "area_m2": 1.45125,
+      "open_area_m2": 1.45125,
+      "operability": "open/dicht",
+      "U_W_m2K": 1.1,
+      "g_value": 0.64,
+      "tilt_deg": 90.0,
+      "azimuth_deg": 348.21,
+      "shutter_feature": null,
+      "glass": "dubbel glas argon"
+    }
+  ]
+}

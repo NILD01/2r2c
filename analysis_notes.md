@@ -27,3 +27,8 @@
 ## Volgende logische stap
 - Als deze baseline werkt, kunnen we Qdist vervangen of verklaren door **expliciete inputs** (zon, CV, warmtepomp, interne loads), zodat Qdist kleiner en stabieler wordt.
 - Daarna kan je het model inzetten als **predictor** met expliciete control‑inputs.
+
+## Nieuwe solar-stap (state-of-the-art, robuust)
+- **Solar model** toegevoegd met Erbs + Perez + horizon‑shading + IAM + shutters, herbruikbaar via `solar_model.py`.
+- **Fit op volledige dataset** via `fit_solar_disturbance.py`, waarbij de 2R2C‑parameters vast blijven en een latente verstoring (`qd`) de onbekende warmtebronnen opvangt.
+- **Openloop evaluatie** uitgebreid met solar‑inputs én flexibele filtering (apparaten uit via absolute drempels, afwezigheids‑flags, etc.) in `evaluate_openloop.py`.
