@@ -1,0 +1,20 @@
+{
+  "dt_seconds": 60.0,
+  "data_points": 128228,
+  "metrics": {
+    "rmse_C": 8.887862793609825,
+    "mae_C": 8.441797325731208,
+    "bias_C": -8.44176801054003,
+    "r2": -120.44138486107417
+  },
+  "parameters": {
+    "Ria_K_per_W": 0.00593365061104893,
+    "Rao_K_per_W": 0.07046120520373558,
+    "Ci_J_per_K": 242151.95655338786,
+    "Cm_J_per_K": 9022859.82106526
+  },
+  "gains": [],
+  "outputs": {
+    "openloop_csv": "r2r2c_openloop_eval.csv"
+  }
+}

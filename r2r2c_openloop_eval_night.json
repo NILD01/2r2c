@@ -1,0 +1,32 @@
+{
+  "dt_seconds": 60.0,
+  "data_points": 23089,
+  "segments": 334,
+  "segment_filters": {
+    "night_start": 0,
+    "night_end": 6,
+    "require_cv_off": true,
+    "require_hp_off": true,
+    "require_nightmode_sleep": true,
+    "require_cooling": true,
+    "require_tout_below_tin": true,
+    "max_solar": 1.0,
+    "init_window": 10
+  },
+  "metrics": {
+    "rmse_C": 0.15517319655939937,
+    "mae_C": 0.0791978150563946,
+    "bias_C": 0.04770956937564058,
+    "r2": 0.9699006915612765
+  },
+  "parameters": {
+    "Ria_K_per_W": 0.00593365061104893,
+    "Rao_K_per_W": 0.07046120520373558,
+    "Ci_J_per_K": 242151.95655338786,
+    "Cm_J_per_K": 9022859.82106526
+  },
+  "gains": [],
+  "outputs": {
+    "openloop_csv": "r2r2c_openloop_eval_night.csv"
+  }
+}
