@@ -15,6 +15,7 @@
   - `train.zip` rechtstreeks leest;
   - de 2R2C‑parameters **gemeenschappelijk** fit via Kalman‑filter log‑likelihood;
   - een **latente warmte‑storing** (`Qdist`) als extra state meeneemt;
+  - de trainingsdata **segmenteert en filtert** op CV/HP uit + lage zonnestraling + voldoende temperatuursvariatie;
   - een CSV export maakt met gefilterde binnen‑temperatuur en geschatte Qdist.
 - Een `requirements.txt` zodat je in één keer de benodigde packages kunt installeren.
 
