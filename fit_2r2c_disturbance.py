@@ -51,6 +51,8 @@ class Config:
     sigma_proc_tm: float = 0.02
     sigma_proc_qd_init: float = 50.0
     maxiter: int = 80
+    n_restarts: int = 6
+    prior_sigma_log: float = 2.0
     out_json: Path = Path("r2r2c_disturbance_result.json")
     out_csv: Path = Path("r2r2c_disturbance_filtered.csv")
 
@@ -136,6 +138,7 @@ def _kalman_nll(
     tout: np.ndarray,
     dt_s: float,
     cfg: Config,
+    prior_mu_log: np.ndarray,
 ) -> float:
     log_ria, log_rao, log_cm, log_volume, log_sigma_q = params_log
     Ria = 10.0 ** float(log_ria)
@@ -181,6 +184,11 @@ def _kalman_nll(
         K = (P_pred @ H.T)[:, 0] / S
         x = x_pred + K * innov
         P = P_pred - np.outer(K, H @ P_pred)
+
+    if cfg.prior_sigma_log > 0:
+        sigma = float(cfg.prior_sigma_log)
+        penalty = 0.5 * float(np.sum(((params_log - prior_mu_log) / sigma) ** 2))
+        nll += penalty
 
     return float(nll)
 
@@ -243,19 +251,31 @@ def fit_model(cfg: Config) -> Dict[str, float]:
     )
     bounds = [(-6, 1), (-6, 2), (4, 9), (0, 4), (-3, 4)]
 
-    nll = partial(_kalman_nll, tin=tin, tout=tout, dt_s=dt_s, cfg=cfg)
-    res = minimize(
-        nll,
-        x0,
-        method="L-BFGS-B",
-        bounds=bounds,
-        options={"maxiter": cfg.maxiter},
-    )
+    rng = np.random.default_rng(0)
+    initial_guesses = [x0]
+    for _ in range(max(cfg.n_restarts - 1, 0)):
+        guess = np.array([rng.uniform(low, high) for low, high in bounds], dtype=float)
+        initial_guesses.append(guess)
 
-    if not res.success:
-        print(f"Warning: optimization did not converge: {res.message}", file=sys.stderr)
+    nll = partial(_kalman_nll, tin=tin, tout=tout, dt_s=dt_s, cfg=cfg, prior_mu_log=x0)
+    best_res = None
+    for guess in initial_guesses:
+        res = minimize(
+            nll,
+            guess,
+            method="L-BFGS-B",
+            bounds=bounds,
+            options={"maxiter": cfg.maxiter},
+        )
+        if best_res is None or res.fun < best_res.fun:
+            best_res = res
 
-    log_ria, log_rao, log_cm, log_volume, log_sigma_q = res.x
+    if best_res is None:
+        raise RuntimeError("Optimization failed to produce a result.")
+    if not best_res.success:
+        print(f"Warning: optimization did not converge: {best_res.message}", file=sys.stderr)
+
+    log_ria, log_rao, log_cm, log_volume, log_sigma_q = best_res.x
     Ria = 10.0 ** float(log_ria)
     Rao = 10.0 ** float(log_rao)
     Cm = 10.0 ** float(log_cm)
@@ -300,6 +320,7 @@ def fit_model(cfg: Config) -> Dict[str, float]:
         "sigma_qd_W": sigma_q,
         "dt_seconds": dt_s,
         "rmse_C": rmse,
+        "nll": float(best_res.fun),
         "data_points": int(len(tin)),
         "outputs": {
             "filtered_csv": str(cfg.out_csv),
@@ -323,6 +344,8 @@ def _parse_args() -> Config:
     parser.add_argument("--sigma-proc-tm", dest="sigma_proc_tm", type=float, default=0.02)
     parser.add_argument("--sigma-proc-qd-init", dest="sigma_proc_qd_init", type=float, default=50.0)
     parser.add_argument("--maxiter", dest="maxiter", type=int, default=80)
+    parser.add_argument("--n-restarts", dest="n_restarts", type=int, default=6)
+    parser.add_argument("--prior-sigma-log", dest="prior_sigma_log", type=float, default=2.0)
     args = parser.parse_args()
 
     return Config(
@@ -336,6 +359,8 @@ def _parse_args() -> Config:
         sigma_proc_tm=args.sigma_proc_tm,
         sigma_proc_qd_init=args.sigma_proc_qd_init,
         maxiter=args.maxiter,
+        n_restarts=args.n_restarts,
+        prior_sigma_log=args.prior_sigma_log,
         out_json=Path(args.out_json),
         out_csv=Path(args.out_csv),
     )
