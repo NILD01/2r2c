@@ -22,12 +22,20 @@ import math
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterable, List, Tuple
+from typing import Dict, List, Tuple
 
 import numpy as np
 import pandas as pd
 from scipy.linalg import expm
 
+from segment_filters import (
+    FilterSpec,
+    build_mask,
+    filter_ranges_by_variation,
+    infer_dt_seconds,
+    prepare_dataframe,
+    segment_ranges_from_mask,
+)
 
 @dataclass(frozen=True)
 class GainSpec:
@@ -75,135 +83,21 @@ def _read_zip_csv(path: Path) -> pd.DataFrame:
             return pd.read_csv(f)
 
 
-def _prepare_series(
-    df: pd.DataFrame,
-    cfg: Config,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray, float, np.ndarray]:
-    required = [cfg.time_col, cfg.tin_col, cfg.tout_col]
-    required.extend(g.column for g in cfg.gains)
-    if cfg.require_cv_off:
-        required.append("CV_mode_off")
-    if cfg.require_hp_off:
-        required.append("warmtepomp_mode_off")
-    if cfg.require_nightmode_sleep:
-        required.append("nachtmodus_slapen")
-    if cfg.require_cooling or cfg.require_tout_below_tin:
-        required.append(cfg.tin_col)
-        required.append(cfg.tout_col)
-    if cfg.max_solar is not None:
-        required.append("zonnestraling")
-    missing = [col for col in required if col not in df.columns]
-    if missing:
-        raise KeyError(f"Missing columns: {missing}. Available: {list(df.columns)}")
-
-    use_cols = [cfg.time_col, cfg.tin_col, cfg.tout_col] + [g.column for g in cfg.gains]
-    df = df[use_cols].copy()
-    df[cfg.time_col] = pd.to_datetime(df[cfg.time_col], utc=True, errors="coerce")
-    df[cfg.tin_col] = pd.to_numeric(df[cfg.tin_col], errors="coerce")
-    df[cfg.tout_col] = pd.to_numeric(df[cfg.tout_col], errors="coerce")
-    for g in cfg.gains:
-        df[g.column] = pd.to_numeric(df[g.column], errors="coerce")
-    df = df.dropna(subset=[cfg.time_col, cfg.tin_col, cfg.tout_col])
-    df = df.sort_values(cfg.time_col)
-
-    if len(df) < 10:
-        raise ValueError("Not enough valid samples after cleaning.")
-
-    dt_seconds = float(df[cfg.time_col].diff().dt.total_seconds().dropna().median())
-    if not math.isfinite(dt_seconds) or dt_seconds <= 0:
-        raise ValueError("Could not infer a positive dt from time column.")
-
-    tin = df[cfg.tin_col].to_numpy(dtype=float)
-    tout = df[cfg.tout_col].to_numpy(dtype=float)
-    gains = df[[g.column for g in cfg.gains]].to_numpy(dtype=float) if cfg.gains else np.zeros((len(df), 0))
-    times = df[cfg.time_col].to_numpy()
-    return tin, tout, gains, dt_seconds, times
-
-
-def _build_mask(df: pd.DataFrame, cfg: Config) -> np.ndarray:
-    df = df.copy()
-    df[cfg.time_col] = pd.to_datetime(df[cfg.time_col], utc=True, errors="coerce")
-    df[cfg.tin_col] = pd.to_numeric(df[cfg.tin_col], errors="coerce")
-    df[cfg.tout_col] = pd.to_numeric(df[cfg.tout_col], errors="coerce")
-    if cfg.max_solar is not None and "zonnestraling" in df.columns:
-        df["zonnestraling"] = pd.to_numeric(df["zonnestraling"], errors="coerce")
-    mask = np.ones(len(df), dtype=bool)
-    if cfg.night_start != cfg.night_end:
-        hours = df[cfg.time_col].dt.hour.to_numpy()
-        if cfg.night_start < cfg.night_end:
-            mask &= (hours >= cfg.night_start) & (hours < cfg.night_end)
-        else:
-            mask &= (hours >= cfg.night_start) | (hours < cfg.night_end)
-    if cfg.require_cv_off:
-        mask &= df["CV_mode_off"].to_numpy(dtype=float) > 0.5
-    if cfg.require_hp_off:
-        mask &= df["warmtepomp_mode_off"].to_numpy(dtype=float) > 0.5
-    if cfg.require_nightmode_sleep:
-        mask &= df["nachtmodus_slapen"].to_numpy(dtype=float) > 0.5
-    if cfg.max_solar is not None and "zonnestraling" in df.columns:
-        mask &= df["zonnestraling"].to_numpy(dtype=float) <= cfg.max_solar
-    if cfg.require_tout_below_tin:
-        mask &= df[cfg.tout_col].to_numpy(dtype=float) < df[cfg.tin_col].to_numpy(dtype=float)
-    if cfg.require_cooling:
-        tin_vals = df[cfg.tin_col].to_numpy(dtype=float)
-        cooling = np.zeros_like(tin_vals, dtype=bool)
-        cooling[1:] = tin_vals[1:] <= tin_vals[:-1]
-        mask &= cooling
-    return mask
-
-
-def _segment_by_mask(
-    tin: np.ndarray,
-    tout: np.ndarray,
-    gains: np.ndarray,
-    times: np.ndarray,
-    dt_seconds: float,
-    mask: np.ndarray,
-) -> List[Segment]:
-    if len(tin) != len(mask):
-        raise ValueError("Mask length must match input length.")
-    segments: List[Segment] = []
-    start = None
-    for idx in range(len(tin)):
-        if not mask[idx]:
-            if start is not None:
-                segments.append(
-                    Segment(
-                        tin=tin[start:idx],
-                        tout=tout[start:idx],
-                        gains=gains[start:idx],
-                        times=times[start:idx],
-                    )
-                )
-                start = None
-            continue
-        if start is None:
-            start = idx
-            continue
-        prev = times[idx - 1]
-        curr = times[idx]
-        gap = pd.Timedelta(curr - prev).total_seconds()
-        if not math.isfinite(gap) or abs(gap - dt_seconds) > 0.1:
-            segments.append(
-                Segment(
-                    tin=tin[start:idx],
-                    tout=tout[start:idx],
-                    gains=gains[start:idx],
-                    times=times[start:idx],
-                )
-            )
-            start = idx
-    if start is not None:
-        segments.append(
-            Segment(
-                tin=tin[start:],
-                tout=tout[start:],
-                gains=gains[start:],
-                times=times[start:],
-            )
-        )
-    segments = [seg for seg in segments if len(seg.tin) >= 10]
-    return segments
+def _build_filter_spec(cfg: Config) -> FilterSpec:
+    return FilterSpec(
+        time_col=cfg.time_col,
+        tin_col=cfg.tin_col,
+        tout_col=cfg.tout_col,
+        require_cv_off=cfg.require_cv_off,
+        require_hp_off=cfg.require_hp_off,
+        require_nightmode_sleep=cfg.require_nightmode_sleep,
+        require_cooling=cfg.require_cooling,
+        require_tout_below_tin=cfg.require_tout_below_tin,
+        night_start=cfg.night_start,
+        night_end=cfg.night_end,
+        max_solar=cfg.max_solar,
+        min_segment_len=10,
+    )
 
 
 def _build_continuous_matrices(
@@ -307,9 +201,34 @@ def _simulate_segment(
 
 def evaluate_open_loop(cfg: Config) -> Dict[str, float]:
     df = _read_zip_csv(cfg.zip_path)
-    tin, tout, gains, dt_s, times = _prepare_series(df, cfg)
-    mask = _build_mask(df, cfg)
-    segments = _segment_by_mask(tin, tout, gains, times, dt_s, mask)
+    spec = _build_filter_spec(cfg)
+    gain_cols = [g.column for g in cfg.gains]
+    df = prepare_dataframe(df, spec=spec, extra_cols=gain_cols)
+    dt_s = infer_dt_seconds(df, time_col=cfg.time_col)
+    mask = build_mask(df, spec=spec)
+    ranges = segment_ranges_from_mask(df, time_col=cfg.time_col, mask=mask, dt_seconds=dt_s)
+    ranges = filter_ranges_by_variation(
+        df,
+        ranges,
+        tin_col=cfg.tin_col,
+        tout_col=cfg.tout_col,
+        min_segment_len=spec.min_segment_len,
+        min_tin_range=spec.min_tin_range,
+        min_tout_range=spec.min_tout_range,
+    )
+    tin_all = df[cfg.tin_col].to_numpy(dtype=float)
+    tout_all = df[cfg.tout_col].to_numpy(dtype=float)
+    gains_all = df[gain_cols].to_numpy(dtype=float) if gain_cols else np.zeros((len(df), 0))
+    times_all = df[cfg.time_col].to_numpy()
+    segments = [
+        Segment(
+            tin=tin_all[start:end],
+            tout=tout_all[start:end],
+            gains=gains_all[start:end],
+            times=times_all[start:end],
+        )
+        for start, end in ranges
+    ]
     if not segments:
         raise ValueError("No valid segments found for open-loop evaluation.")
 
@@ -319,7 +238,7 @@ def evaluate_open_loop(cfg: Config) -> Dict[str, float]:
     Ci = float(fit["Ci_J_per_K"])
     Cm = float(fit["Cm_J_per_K"])
 
-    A, B = _build_continuous_matrices(Ria, Rao, Ci, Cm, gain_count=gains.shape[1])
+    A, B = _build_continuous_matrices(Ria, Rao, Ci, Cm, gain_count=gains_all.shape[1])
     Ad, Bd = _discretize(A, B, dt_s)
 
     scales = np.array([g.scale for g in cfg.gains], dtype=float)
