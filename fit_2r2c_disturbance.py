@@ -31,6 +31,7 @@ import sys
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
+import time
 from typing import Dict, Iterable, List, Tuple
 
 import numpy as np
@@ -53,6 +54,8 @@ class Config:
     maxiter: int = 80
     n_restarts: int = 6
     prior_sigma_log: float = 2.0
+    stride: int = 1
+    progress_every: int = 10
     out_json: Path = Path("r2r2c_disturbance_result.json")
     out_csv: Path = Path("r2r2c_disturbance_filtered.csv")
 
@@ -83,6 +86,10 @@ def _prepare_series(df: pd.DataFrame, cfg: Config) -> Tuple[np.ndarray, np.ndarr
     df[cfg.tout_col] = pd.to_numeric(df[cfg.tout_col], errors="coerce")
     df = df.dropna(subset=[cfg.time_col, cfg.tin_col, cfg.tout_col])
     df = df.sort_values(cfg.time_col)
+    if cfg.stride < 1:
+        raise ValueError("Stride must be >= 1.")
+    if cfg.stride > 1:
+        df = df.iloc[:: cfg.stride].reset_index(drop=True)
 
     if len(df) < 10:
         raise ValueError("Not enough valid samples after cleaning.")
@@ -258,14 +265,50 @@ def fit_model(cfg: Config) -> Dict[str, float]:
         initial_guesses.append(guess)
 
     nll = partial(_kalman_nll, tin=tin, tout=tout, dt_s=dt_s, cfg=cfg, prior_mu_log=x0)
+    best_nll = math.inf
     best_res = None
-    for guess in initial_guesses:
+    for idx, guess in enumerate(initial_guesses, start=1):
+        state = {"iter": 0, "last_nll": None}
+
+        def nll_wrapped(params: np.ndarray) -> float:
+            value = nll(params)
+            state["last_nll"] = value
+            return value
+
+        def callback(_xk: np.ndarray) -> None:
+            state["iter"] += 1
+            if cfg.progress_every <= 0:
+                return
+            if state["iter"] % cfg.progress_every != 0:
+                return
+            current_nll = state["last_nll"]
+            nonlocal best_nll
+            if current_nll is not None:
+                best_nll = min(best_nll, current_nll)
+            progress = min(state["iter"] / max(cfg.maxiter, 1), 1.0)
+            print(
+                f"[restart {idx}/{len(initial_guesses)}] "
+                f"iter {state['iter']}/{cfg.maxiter} "
+                f"({progress:.0%}) "
+                f"nll={current_nll:.2f} "
+                f"best={best_nll:.2f}",
+                flush=True,
+            )
+
+        start = time.perf_counter()
         res = minimize(
-            nll,
+            nll_wrapped,
             guess,
             method="L-BFGS-B",
             bounds=bounds,
             options={"maxiter": cfg.maxiter},
+            callback=callback,
+        )
+        elapsed = time.perf_counter() - start
+        print(
+            f"[restart {idx}/{len(initial_guesses)}] done in {elapsed:.1f}s "
+            f"nll={res.fun:.2f} iters={res.nit} evals={res.nfev}",
+            flush=True,
         )
         if best_res is None or res.fun < best_res.fun:
             best_res = res
@@ -322,6 +365,7 @@ def fit_model(cfg: Config) -> Dict[str, float]:
         "rmse_C": rmse,
         "nll": float(best_res.fun),
         "data_points": int(len(tin)),
+        "stride": int(cfg.stride),
         "outputs": {
             "filtered_csv": str(cfg.out_csv),
         },
@@ -346,6 +390,8 @@ def _parse_args() -> Config:
     parser.add_argument("--maxiter", dest="maxiter", type=int, default=80)
     parser.add_argument("--n-restarts", dest="n_restarts", type=int, default=6)
     parser.add_argument("--prior-sigma-log", dest="prior_sigma_log", type=float, default=2.0)
+    parser.add_argument("--stride", dest="stride", type=int, default=1)
+    parser.add_argument("--progress-every", dest="progress_every", type=int, default=10)
     args = parser.parse_args()
 
     return Config(
@@ -361,6 +407,8 @@ def _parse_args() -> Config:
         maxiter=args.maxiter,
         n_restarts=args.n_restarts,
         prior_sigma_log=args.prior_sigma_log,
+        stride=args.stride,
+        progress_every=args.progress_every,
         out_json=Path(args.out_json),
         out_csv=Path(args.out_csv),
     )
